@@ -8,6 +8,8 @@ const exec = require('child_process').exec
 const cache = require('./util/apicache').middleware
 const { cookieToJson } = require('./util/index')
 const fileUpload = require('express-fileupload')
+const { createProxyMiddleware } = require('http-proxy-middleware')
+
 // version check
 exec('npm info NeteaseCloudMusicApi version', (err, stdout, stderr) => {
   if (!err) {
@@ -108,6 +110,36 @@ fs.readdirSync(path.join(__dirname, 'module'))
         })
     })
   })
+
+const PROXY_SERVICE_URL_PREFIX = '/+proxy'
+
+const proxy = createProxyMiddleware({
+  target: 'http://localhost:8080',
+  changeOrigin: true,
+  router: (req) => {
+    requestedTarget = req.url.match('^/+proxy/(https?://[^/]*)(/.*)')[1]
+    console.log(requestedTarget)
+    // Hostname whitelist
+    if (
+      requestedTarget.match('https?://(.*.)?music.(126.net|163.com)$') == null
+    )
+      return 'http://localhost:8080'
+    return requestedTarget
+  },
+  pathRewrite: (_, req) => {
+    requestedTargetPath = req.url.match('^/+proxy/(https?://[^/]*)(/.*)')[2]
+    return requestedTargetPath
+  },
+  // Handle 302 redirects
+  onProxyRes: (proxyRes, req, res) => {
+    location = proxyRes.headers['location']
+    if (proxyRes.statusCode == 302 && location != null) {
+      proxyRes.headers['location'] = `/proxy/${location}`
+    }
+  },
+})
+
+app.use(PROXY_SERVICE_URL_PREFIX, proxy)  
 
 const port = process.env.PORT || 3000
 const host = process.env.HOST || ''
